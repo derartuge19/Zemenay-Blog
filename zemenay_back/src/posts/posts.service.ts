@@ -31,9 +31,10 @@ export class PostsService {
     if (!categoryIds || categoryIds.length === 0) {
       // If no categories provided, just remove all existing relationships
       await adminClient
-        .from(this.postCategoriesTable)
-        .delete()
-        .eq('post_id', postId);
+      .from(this.postCategoriesTable)
+      .delete()
+      .eq('post_id', postId)
+      .execute();
       return;
     }
 
@@ -49,17 +50,18 @@ export class PostsService {
       if (validCategories.length === 0) {
         // No valid categories found, remove all relationships
         await adminClient
-          .from(this.postCategoriesTable)
-          .delete()
-          .eq('post_id', postId);
-        return;
+        .from(this.postCategoriesTable)
+        .delete()
+        .eq('post_id', postId)
+        .execute();
       }
 
       // Delete existing relationships
       await adminClient
-        .from(this.postCategoriesTable)
-        .delete()
-        .eq('post_id', postId);
+      .from(this.postCategoriesTable)
+      .delete()
+      .eq('post_id', postId)
+      .execute();
 
       // Create new relationships - let the database handle the ID and created_at
       const postCategories = validCategories.map(category => ({
@@ -67,9 +69,11 @@ export class PostsService {
         category_id: category.id
       }));
 
-      const { error } = await adminClient
-        .from(this.postCategoriesTable)
-        .insert(postCategories);
+      const result = await adminClient
+      .from(this.postCategoriesTable)
+      .insert(postCategories)
+      .execute();
+    const { error } = result;
 
       if (error) {
         this.logger.error('Error creating post-category relationships:', error);
@@ -100,16 +104,18 @@ export class PostsService {
           query.neq('id', existingSlug);
         }
 
-        const { data: existingPost, error } = await query.maybeSingle();
+        const result = await query.maybeSingle().execute();
+const { data: existingPost, error } = result;
 
-        if (error) {
-          this.logger.error(`Error checking slug uniqueness for "${slug}":`, error);
-          throw new Error(`Failed to check slug uniqueness: ${error.message}`);
-        }
+// PGRST116 means "no rows found" which is what we want for a unique slug
+if (error && error.code !== 'PGRST116') {
+  this.logger.error(`Error checking slug uniqueness for "${slug}":`, error);
+  throw new Error(`Failed to check slug uniqueness: ${error.message}`);
+}
 
-        if (!existingPost) {
-          // No post found with this slug, it's unique
-          isUnique = true;
+if (!existingPost) {
+  // No post found with this slug, it's unique
+  isUnique = true;
         } else {
           // Slug exists, generate a new one with counter
           slug = `${baseSlug}-${counter}`;
@@ -138,11 +144,13 @@ export class PostsService {
       this.logger.log(`Creating post for author: ${authorId}`);
       
       // Verify user exists
-      const { data: user, error: userError } = await client
-        .from('users')
-        .select('id')
-        .eq('id', authorId)
-        .single();
+      const userResult = await client
+  .from('users')
+  .select('id')
+  .eq('id', authorId)
+  .single()
+  .execute();
+const { data: user, error: userError } = userResult;
   
       if (userError || !user) {
         this.logger.error(`User not found: ${authorId}`, userError);
@@ -170,13 +178,13 @@ export class PostsService {
         comments_count: 0
       };
   
-      // Start transaction
-      const { data: createdPost, error } = await client
-        .from(this.table)
-        .insert(post)
-        .select()
-        .single();
-  
+      const result = await client
+  .from(this.table)
+  .insert(post)
+  .select()
+  .single()
+  .execute();
+const { data: createdPost, error } = result;
       if (error) {
         this.logger.error('Error creating post:', error);
         throw new Error(`Failed to create post: ${error.message}`);
@@ -200,25 +208,12 @@ export class PostsService {
     try {
       this.logger.log(`Finding posts with params:`, { status, authorId, categoryId });
       
-      // Get database client with error handling
-      let client: ReturnType<DatabaseService['getClient']>;
-      try {
-        client = this.db.getClient();
-      } catch (error) {
-        this.logger.error('Failed to get database client:', error);
-        throw new Error('Database connection error');
-      }
+      const client = this.db.getClient();
       
-      // Build the base query
+      // Build the base query - just select from posts table
       let query = client
         .from(this.table)
-        .select(`
-          *,
-          author:author_id (id, name, email),
-          post_categories(
-            category:categories(*)
-          )
-        `);
+        .select('*');
       
       // Apply filters
       if (status !== undefined && status !== null) {
@@ -228,74 +223,94 @@ export class PostsService {
       if (authorId) {
         query = query.eq('author_id', authorId);
       }
-
+  
       // Handle category filter
       if (categoryId) {
         this.logger.log(`Filtering by category ID: ${categoryId}`);
         
-        try {
-          // First, get all post IDs that have this category
-          const { data: postCategories, error: pcError } = await client
-            .from('post_categories')
-            .select('post_id')
-            .eq('category_id', categoryId);
-          
-          if (pcError) {
-            this.logger.error('Error fetching post categories:', pcError);
-            throw new Error(`Failed to filter by category: ${pcError.message}`);
-          }
-          
-          this.logger.log(`Found ${postCategories?.length || 0} posts with category ${categoryId}`);
-          
-          const postIds = postCategories?.map((pc: { post_id: string }) => pc.post_id) || [];
-          
-          if (postIds.length > 0) {
-            this.logger.log(`Filtering posts by IDs:`, postIds);
-            query = query.in('id', postIds);
-          } else {
-            this.logger.log('No posts found with the specified category');
-            return [];
-          }
-        } catch (error) {
-          this.logger.error('Error processing category filter:', error);
-          throw new Error(`Failed to process category filter: ${error.message}`);
+        // First, get all post IDs that have this category
+        const pcResult = await client
+          .from('post_categories')
+          .select('post_id')
+          .eq('category_id', categoryId)
+          .execute();
+        const { data: postCategories, error: pcError } = pcResult;
+        
+        if (pcError) {
+          this.logger.error('Error fetching post categories:', pcError);
+          throw new Error(`Failed to filter by category: ${pcError.message}`);
+        }
+        
+        const postIds = postCategories?.map((pc: { post_id: string }) => pc.post_id) || [];
+        
+        if (postIds.length > 0) {
+          query = query.in('id', postIds);
+        } else {
+          this.logger.log('No posts found with the specified category');
+          return [];
         }
       }
       
       // Execute the query
       this.logger.log('Executing posts query...');
-      const { data: posts, error, status: queryStatus } = await query
-        .order('created_at', { ascending: false });
+      const queryResult = await query
+        .order('created_at', { ascending: false })
+        .execute();
+      const { data: posts, error } = queryResult;
       
       if (error) {
-        this.logger.error('Error fetching posts:', {
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint,
-          queryStatus
-        });
+        this.logger.error('Error fetching posts:', error);
         throw new Error(`Failed to fetch posts: ${error.message}`);
       }
-
+  
       this.logger.log(`Successfully fetched ${posts?.length || 0} posts`);
       
-      // Transform the categories data for each post
-      const result = (posts || []).map((post: any) => ({
-        ...post,
-        categories: Array.isArray(post.post_categories) 
-          ? post.post_categories.map((pc: any) => pc.category)
-          : []
-      })) as Post[];
+      // Now fetch related data for each post
+      const enrichedPosts = await Promise.all((posts || []).map(async (post: any) => {
+        // Fetch author
+        let author = null;
+        if (post.author_id) {
+          const authorResult = await client
+            .from('users')
+            .select('id, name, email')
+            .eq('id', post.author_id)
+            .single()
+            .execute();
+          author = authorResult.data;
+        }
+  
+        // Fetch categories
+        const categoriesResult = await client
+          .from('post_categories')
+          .select('category_id')
+          .eq('post_id', post.id)
+          .execute();
+        
+        const categoryIds = categoriesResult.data?.map((pc: any) => pc.category_id) || [];
+        
+        let categories = [];
+        if (categoryIds.length > 0) {
+          const catsResult = await client
+            .from('categories')
+            .select('*')
+            .in('id', categoryIds)
+            .execute();
+          categories = catsResult.data || [];
+        }
+  
+        return {
+          ...post,
+          author,
+          categories
+        };
+      }));
       
-      return result;
+      return enrichedPosts as Post[];
       
     } catch (error) {
       this.logger.error('Error in findAll posts:', {
         message: error.message,
         stack: error.stack,
-        status: error.status,
-        code: error.code
       });
       throw new Error(`Failed to fetch posts: ${error.message}`);
     }
@@ -303,42 +318,54 @@ export class PostsService {
 
   async findOne(id: string): Promise<Post> {
     try {
-      const { data: post, error: postError } = await this.db.getClient()
+      // First, get the post
+      const postResult = await this.db.getClient()
         .from(this.table)
-        .select(`
-          *,
-          categories:post_categories(
-            category:categories(*)
-          )
-        `)
+        .select('*')
         .eq('id', id)
-        .single();
-
+        .single()
+        .execute();
+      const { data: post, error: postError } = postResult;
+  
       if (postError || !post) {
         throw new NotFoundException(`Post with ID ${id} not found`);
       }
-
+  
+      // Then get the categories separately
+      const categoriesResult = await this.db.getClient()
+        .from('post_categories')
+        .select('category_id')
+        .eq('post_id', id)
+        .execute();
+      
+      const categoryIds = categoriesResult.data?.map((pc: any) => pc.category_id) || [];
+      
+      let categories = [];
+      if (categoryIds.length > 0) {
+        const catsResult = await this.db.getClient()
+          .from('categories')
+          .select('*')
+          .in('id', categoryIds)
+          .execute();
+        categories = catsResult.data || [];
+      }
+  
       // Fetch approved comments for this post
       const comments = await this.commentsService.findAll({ 
         postId: id,
         status: 'approved',
-        limit: 1000 // Set a high limit to get all comments
+        limit: 1000
       });
-
-      // Transform the categories data
-      const categories = Array.isArray(post.categories) 
-        ? post.categories.map((pc: any) => pc.category)
-        : [];
-
+  
       return {
         ...post,
         categories,
-        comments_count: comments.length, // Update comments count
-        comments // Include the actual comments
+        comments: comments|| []
       } as Post;
+      
     } catch (error) {
       this.logger.error(`Error finding post ${id}:`, error);
-      throw new Error(`Failed to fetch post: ${error.message}`);
+      throw error;
     }
   }
 
@@ -347,18 +374,19 @@ export class PostsService {
     try {
       const now = new Date().toISOString();
       
-      // Extract categories before updating post
-      const { categories: categoryIds, title, ...updateData } = updatePostDto;
+      const { categories: categoryIds, tags: tagIds, title, ...updateData } = updatePostDto;
       
       // Check if we need to update the slug (if title changed)
       let slugUpdate = {};
       if (title) {
         // Get the current post to check if title changed
-        const { data: currentPost } = await client
-          .from(this.table)
-          .select('title, slug')
-          .eq('id', id)
-          .single();
+        const currentPostResult = await client
+        .from(this.table)
+        .select('title, slug')
+        .eq('id', id)
+        .single()
+        .execute();
+      const { data: currentPost } = currentPostResult;
           
         if (currentPost && currentPost.title !== title) {
           // Title changed, generate a new unique slug
@@ -376,12 +404,14 @@ export class PostsService {
           : {})
       };
 
-      const { data: updatedPost, error } = await client
-        .from(this.table)
-        .update(updateDataWithTimestamps)
-        .eq('id', id)
-        .select()
-        .single();
+      const updateResult = await client
+  .from(this.table)
+  .update(updateDataWithTimestamps)
+  .eq('id', id)
+  .select()
+  .single()
+  .execute();
+const { data: updatedPost, error } = updateResult;
 
       if (error) {
         throw new Error(`Failed to update post: ${error.message}`);
@@ -406,15 +436,17 @@ export class PostsService {
     try {
       // Delete category relationships first
       await client
-        .from(this.postCategoriesTable)
-        .delete()
-        .eq('post_id', id);
+  .from(this.postCategoriesTable)
+  .delete()
+  .eq('post_id', id)
+  .execute();
 
-      // Then delete the post
-      const { error } = await client
-        .from(this.table)
-        .delete()
-        .eq('id', id);
+  const result = await client
+  .from(this.table)
+  .delete()
+  .eq('id', id)
+  .execute();
+const { error } = result;
 
       if (error) {
         throw new Error(`Failed to delete post: ${error.message}`);
@@ -431,7 +463,8 @@ export class PostsService {
     try {
       this.logger.log(`Incrementing views for post ${id}`);
       
-      const { error } = await this.db.getClient().rpc('increment_views', { id });
+      const result = await this.db.getClient().rpc('increment_views', { id }).execute();
+      const { error } = result;
       
       if (error) {
         throw new Error(`Failed to increment views: ${error.message}`);
@@ -447,18 +480,17 @@ export class PostsService {
     try {
       this.logger.log(`Finding post with slug: ${slug}`);
       
-      const { data, error } = await this.db.getClient()
+      const client = this.db.getClient();
+      
+      // First, get the post
+      const slugResult = await client
         .from(this.table)
-        .select(`
-          *,
-          author:author_id (id, name, email),
-          categories:post_categories(
-            category:categories(*)
-          )
-        `)
+        .select('*')
         .eq('slug', slug)
-        .single();
-        
+        .single()
+        .execute();
+      const { data, error } = slugResult;
+      
       if (error) {
         if (error.code === 'PGRST116') { // Not found
           throw new NotFoundException(`Post with slug "${slug}" not found`);
@@ -466,19 +498,52 @@ export class PostsService {
         throw error;
       }
       
+      if (!data) {
+        throw new NotFoundException(`Post with slug "${slug}" not found`);
+      }
+      
+      // Fetch author
+      let author = null;
+      if (data.author_id) {
+        const authorResult = await client
+          .from('users')
+          .select('id, name, email')
+          .eq('id', data.author_id)
+          .single()
+          .execute();
+        author = authorResult.data;
+      }
+      
+      // Fetch categories
+      const categoriesResult = await client
+        .from('post_categories')
+        .select('category_id')
+        .eq('post_id', data.id)
+        .execute();
+      
+      const categoryIds = categoriesResult.data?.map((pc: any) => pc.category_id) || [];
+      
+      let categories = [];
+      if (categoryIds.length > 0) {
+        const catsResult = await client
+          .from('categories')
+          .select('*')
+          .in('id', categoryIds)
+          .execute();
+        categories = catsResult.data || [];
+      }
+      
       // Fetch approved comments for this post
       const comments = await this.commentsService.findAll({ 
         postId: data.id,
         status: 'approved',
-        limit: 1000 // Set a high limit to get all comments
+        limit: 1000
       });
       
-      // Map the data to match the Post entity
       return {
         ...data,
-        categories: Array.isArray(data.categories) 
-          ? data.categories.map((pc: any) => pc.category)
-          : [],
+        author,
+        categories,
         comments_count: comments.length,
         comments
       } as Post;

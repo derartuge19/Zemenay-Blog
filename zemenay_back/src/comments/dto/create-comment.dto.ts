@@ -8,11 +8,12 @@ export class CreateCommentDto {
   content: string;
 
   @ApiProperty({ description: 'ID of the post this comment belongs to' })
-  @IsUUID()
+  @IsString()
+  @IsNotEmpty()
   post_id: string;
 
   @ApiProperty({ description: 'ID of the comment author' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   author_id: string;
 
@@ -36,7 +37,7 @@ export class CreateCommentDto {
     required: false,
     nullable: true,
   })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   parent_id?: string | null;
 }

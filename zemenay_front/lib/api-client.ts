@@ -1,7 +1,9 @@
 // API Client for NestJS Backend
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE_URL = typeof window !== 'undefined' 
+  ? window.location.origin 
+  : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-// Types
+/// Types
 export interface BlogPost {
   id?: string;
   title: string;
@@ -14,11 +16,28 @@ export interface BlogPost {
   seo_keywords?: string;
   created_at?: string;
   updated_at?: string;
+  published_at?: string;  // ADD THIS
   author_id: string;
+  author_name?: string;   // ADD THIS
   slug?: string;
   tags?: Tag[];
-  author?: User;
+  author?: UserType;
   categories?: Category[];
+}
+
+// Consolidated User type
+export interface UserType {
+  id: string;
+  email: string;
+  username: string;
+  name?: string;  // ADD THIS
+  role: 'admin' | 'editor' | 'author' | 'user' | 'guest' | string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login?: string;
+  avatar_url?: string;
+  bio?: string;
 }
 
 export interface Tag {
@@ -29,29 +48,36 @@ export interface Tag {
   posts_count?: number;
 }
 
+// Consolidated User type
+export interface UserType {
+  id: string;
+  email: string;
+  username: string;
+  role: 'admin' | 'editor' | 'author' | 'user' | 'guest' | string; // Keep `string` for flexibility
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login?: string;
+  avatar_url?: string;
+  bio?: string;
+}
+
+// Corrected Category type with 'updated_at' property
 export interface Category {
   id: string;
   name: string;
   slug: string;
-  created_at: string;
-  posts_count?: number;
-}
-
-export interface User {
-  id: string;
-  email: string;
-  username: string;
-  role: string;
-  avatar_url?: string;
-  bio?: string;
+  description?: string;
+  status: 'active' | 'inactive';
   created_at: string;
   updated_at: string;
+  posts_count?: number;
 }
 
 export interface AuthResponse {
   access_token: string;
   refresh_token?: string;
-  user: User;
+  user: UserType; // Corrected to use UserType
 }
 
 // Renamed from ApiError to IApiError to avoid naming conflict
@@ -66,13 +92,13 @@ export class ApiError extends Error {
   status: number;
   errors?: any;
   details?: any;
-  
+
   constructor(message: string, status: number, errors?: any) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.errors = errors;
-    
+
     // Capture the full error details for debugging
     this.details = {
       message,
@@ -80,12 +106,12 @@ export class ApiError extends Error {
       errors,
       timestamp: new Date().toISOString(),
     };
-    
+
     // Ensure the stack trace is captured
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, ApiError);
     }
-    
+
     // Log the error for debugging
     console.error('API Error:', {
       name: this.name,
@@ -95,7 +121,7 @@ export class ApiError extends Error {
       stack: this.stack,
     });
   }
-  
+
   // Helper to create an ApiError from a fetch response
   static async fromResponse(response: Response): Promise<ApiError> {
     try {
@@ -103,13 +129,13 @@ export class ApiError extends Error {
       return new ApiError(
         data.message || response.statusText || 'An error occurred',
         response.status,
-        data.errors || data
+        data.errors || data,
       );
     } catch (e) {
       return new ApiError(
         response.statusText || 'An error occurred',
         response.status,
-        { message: 'Failed to parse error response' }
+        { message: 'Failed to parse error response' },
       );
     }
   }
@@ -145,7 +171,7 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
     const headers = new Headers({
@@ -162,7 +188,7 @@ class ApiClient {
       console.log(`Making ${options.method || 'GET'} request to:`, url);
       console.log('Request headers:', Object.fromEntries(headers.entries()));
       console.log('Request body:', options.body);
-      
+
       const response = await fetch(url, {
         ...options,
         headers,
@@ -170,7 +196,7 @@ class ApiClient {
       });
 
       console.log('Response status:', response.status, response.statusText);
-      
+
       // Handle 204 No Content
       if (response.status === 204) {
         return null as unknown as T;
@@ -190,7 +216,7 @@ class ApiClient {
           throw new ApiError(
             'Invalid JSON response from server',
             response.status,
-            { responseText: text }
+            { responseText: text },
           );
         }
       } else {
@@ -207,11 +233,11 @@ class ApiClient {
           response: data,
           headers: Object.fromEntries(response.headers.entries()),
         });
-        
+
         throw new ApiError(
           data.message || response.statusText || 'An error occurred',
           response.status,
-          data.errors || data
+          data.errors || data,
         );
       }
 
@@ -254,8 +280,9 @@ class ApiClient {
     }
   }
 
-  async getCurrentUser(): Promise<User> {
-    return this.request<User>('/auth/me');
+  async getCurrentUser(): Promise<UserType> {
+    // Corrected to use UserType
+    return this.request<UserType>('/auth/me');
   }
 
   // Posts methods
@@ -274,20 +301,22 @@ class ApiClient {
     if (params?.categoryId) query.append('categoryId', params.categoryId);
 
     return this.request<{ data: BlogPost[]; total: number }>(
-      `/posts?${query.toString()}`
+      `/api/blog?${query.toString()}`,
     );
   }
 
   async getPost(id: string): Promise<BlogPost> {
-    return this.request<BlogPost>(`/posts/${id}`);
+    return this.request<BlogPost>(`/api/blog/${id}`);
   }
 
   async getPostBySlug(slug: string): Promise<BlogPost> {
-    return this.request<BlogPost>(`/posts/slug/${slug}`);
+    return this.request<BlogPost>(`/api/blog?slug=${encodeURIComponent(slug)}`);
   }
 
-  async createPost(postData: Omit<BlogPost, 'id' | 'created_at' | 'updated_at'>): Promise<BlogPost> {
-    return this.request<BlogPost>('/posts', {
+  async createPost(
+    postData: Omit<BlogPost, 'id' | 'created_at' | 'updated_at'>,
+  ): Promise<BlogPost> {
+    return this.request<BlogPost>('/api/blog', {
       method: 'POST',
       body: JSON.stringify(postData),
     });
@@ -295,98 +324,130 @@ class ApiClient {
 
   async updatePost(
     id: string,
-    updates: Partial<Omit<BlogPost, 'id' | 'created_at' | 'updated_at'>>
+    updates: Partial<Omit<BlogPost, 'id' | 'created_at' | 'updated_at'>>,
   ): Promise<BlogPost> {
     console.log('Original updates:', JSON.stringify(updates, null, 2));
-    
-    // Transform the updates to match the backend's expected format
+
     const transformedUpdates: any = { ...updates };
-    
-    // Handle tags - ensure it's an array of strings (IDs)
+
     if (updates.tags) {
-      transformedUpdates.tags = updates.tags.map(tag => {
+      transformedUpdates.tags = updates.tags.map((tag) => {
         if (typeof tag === 'string') return tag;
         return tag.id;
       });
       console.log('Transformed tags:', transformedUpdates.tags);
     }
-    
-    // Handle categories - ensure it's an array of strings (IDs)
+
     if (updates.categories) {
-      transformedUpdates.categories = updates.categories.map(cat => {
+      transformedUpdates.categories = updates.categories.map((cat) => {
         if (typeof cat === 'string') return cat;
         return cat.id;
       });
       console.log('Transformed categories:', transformedUpdates.categories);
     }
-    
-    // Ensure we're not sending undefined or null values
-    Object.keys(transformedUpdates).forEach(key => {
-      if (transformedUpdates[key] === undefined || transformedUpdates[key] === null) {
+
+    Object.keys(transformedUpdates).forEach((key) => {
+      if (
+        transformedUpdates[key] === undefined ||
+        transformedUpdates[key] === null
+      ) {
         delete transformedUpdates[key];
       }
     });
-    
-    console.log('Sending transformed update:', JSON.stringify(transformedUpdates, null, 2));
-    
-    return this.request<BlogPost>(`/posts/${id}`, {
-      method: 'PUT',
+
+    console.log(
+      'Sending transformed update:',
+      JSON.stringify(transformedUpdates, null, 2),
+    );
+
+    return this.request<BlogPost>(`/api/blog/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(transformedUpdates),
     });
   }
 
   async deletePost(id: string): Promise<void> {
-    return this.request<void>(`/posts/${id}`, {
+    return this.request<void>(`/api/blog/${id}`, {
       method: 'DELETE',
     });
   }
 
   // Categories
   async getCategories(): Promise<Category[]> {
-    return this.request<Category[]>('/categories');
+    try {
+      const response = await this.request<{ categories: Category[] }>('/api/categories');
+      return response.categories || [];
+    } catch (error) {
+      console.error('Error in getCategories:', error);
+      throw error;
+    }
   }
 
-  async getCategory(id: string): Promise<Category> {
-    return this.request<Category>(`/categories/${id}`);
+  async getCategory(id: string): Promise<Category | null> {
+    try {
+      const response = await this.request<{ category: Category }>(`/api/categories/${id}`);
+      return response.category || null;
+    } catch (error) {
+      console.error(`Error fetching category ${id}:`, error);
+      return null;
+    }
   }
 
-  async createCategory(data: any): Promise<Category> {
-    return this.request<Category>('/categories', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  async createCategory(data: Omit<Category, 'id' | 'created_at' | 'updated_at'>): Promise<Category | null> {
+    try {
+      const response = await this.request<{ category: Category }>('/api/categories', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      return response.category;
+    } catch (error) {
+      console.error('Error creating category:', error);
+      throw error;
+    }
   }
 
-  async updateCategory(id: string, data: any): Promise<Category> {
-    return this.request<Category>(`/categories/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  async updateCategory(id: string, data: Partial<Omit<Category, 'id' | 'created_at' | 'updated_at'>>): Promise<Category | null> {
+    try {
+      const response = await this.request<{ category: Category }>(`/api/categories/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+      return response.category;
+    } catch (error) {
+      console.error(`Error updating category ${id}:`, error);
+      throw error;
+    }
   }
 
-  async deleteCategory(id: string): Promise<void> {
-    return this.request<void>(`/categories/${id}`, {
-      method: 'DELETE',
-    });
+  async deleteCategory(id: string): Promise<boolean> {
+    try {
+      await this.request(`/api/categories/${id}`, {
+        method: 'DELETE',
+      });
+      return true;
+    } catch (error) {
+      console.error(`Error deleting category ${id}:`, error);
+      return false;
+    }
   }
 
   // Tags methods
   async getTags(): Promise<Tag[]> {
-    const response = await this.request<{ data: Tag[] }>('/tags');
+    const response = await this.request<{ data: Tag[] }>('/api/tags');
     return response.data;
   }
 
   async createTag(name: string): Promise<Tag> {
-    return this.request<Tag>('/tags', {
+    return this.request<Tag>('/api/tags', {
       method: 'POST',
       body: JSON.stringify({ name }),
     });
   }
 
   // Users methods
-  async getUsers(): Promise<User[]> {
-    const response = await this.request<User[]>('/users');
-    return response;
+  async getUsers(): Promise<UserType[]> {
+    // Corrected: Use UserType[]
+    return this.request<UserType[]>('/api/users');
   }
 
   async createUser(userData: {
@@ -394,17 +455,18 @@ class ApiClient {
     username: string;
     password: string;
     role: string;
-  }): Promise<User> {
-    // Transform the data to match backend's expected format
+  }): Promise<UserType> {
+    // Corrected: Use UserType
     const requestData = {
       email: userData.email,
-      name: userData.username, // Map username to name
+      name: userData.username,
       password: userData.password,
       role: userData.role,
     };
 
     try {
-      return await this.request<User>('/users', {
+      return await this.request<UserType>('/api/users', {
+        // Corrected: Use UserType
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -413,52 +475,53 @@ class ApiClient {
       });
     } catch (error) {
       console.error('Error creating user:', error);
-      throw error; // Re-throw to be handled by the component
+      throw error;
     }
   }
 
-  async getUser(id: string): Promise<User> {
-    return this.request<User>(`/users/${id}`);
+  async getUser(id: string): Promise<UserType> {
+    // Corrected: Use UserType
+    return this.request<UserType>(`/api/users/${id}`);
   }
 
-  async updateUser(id: string, data: Partial<User>): Promise<User> {
-    return this.request<User>(`/users/${id}`, {
+  async updateUser(id: string, data: Partial<UserType>): Promise<UserType> {
+    // Corrected: Use UserType
+    return this.request<UserType>(`/api/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   async deleteUser(id: string): Promise<void> {
-    return this.request<void>(`/users/${id}`, {
+    return this.request<void>(`/api/users/${id}`, {
       method: 'DELETE',
     });
   }
 
   // File upload
-  async uploadFile(file: File, folder: string = 'uploads'): Promise<{ url: string }> {
+  async uploadFile(
+    file: File,
+    folder: string = 'uploads',
+  ): Promise<{ url: string }> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('folder', folder);
 
-    // Create headers object
     const headers: Record<string, string> = {
-      'Accept': 'application/json',
+      Accept: 'application/json',
     };
 
-    // Add auth token if available
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
 
-    // Remove /api from the URL since the backend doesn't use it
     const baseUrl = this.baseURL.replace('/api', '');
-    
-    // Use fetch directly to avoid the request wrapper which might be causing issues
+
     const response = await fetch(`${baseUrl}/upload`, {
       method: 'POST',
       body: formData,
       headers,
-      credentials: 'include', // Important for sending cookies
+      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -466,7 +529,7 @@ class ApiClient {
       throw new ApiError(
         errorData.message || 'Failed to upload file',
         response.status,
-        errorData.errors
+        errorData.errors,
       );
     }
 
@@ -476,13 +539,18 @@ class ApiClient {
   // Analytics methods
   async getDashboardStats() {
     try {
-      console.log('Fetching dashboard stats from:', `${this.baseURL}/analytics/dashboard`);
-      
-      const response = await fetch(`${this.baseURL}/analytics/dashboard`, {
+      console.log(
+        'Fetching dashboard stats from:',
+        `${this.baseURL}/api/analytics/dashboard`,
+      );
+
+      const response = await fetch(`${this.baseURL}/api/analytics/dashboard`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          ...(this.accessToken && { 'Authorization': `Bearer ${this.accessToken}` }),
+          ...(this.accessToken && {
+            Authorization: `Bearer ${this.accessToken}`,
+          }),
         },
         credentials: 'include',
       });
@@ -492,12 +560,14 @@ class ApiClient {
           status: response.status,
           statusText: response.statusText,
         });
-        throw new Error(`Failed to fetch dashboard stats: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `Failed to fetch dashboard stats: ${response.status} ${response.statusText}`,
+        );
       }
 
       const data = await response.json();
       console.log('Dashboard stats response:', data);
-      
+
       return {
         totalPosts: data.totalPosts || 0,
         totalUsers: data.totalUsers || 0,
@@ -506,7 +576,7 @@ class ApiClient {
         popularPosts: data.popularPosts || [],
         recentPosts: data.recentPosts || [],
         postsByStatus: data.postsByStatus || [],
-        monthlyStats: data.monthlyStats || []
+        monthlyStats: data.monthlyStats || [],
       };
     } catch (error) {
       console.error('Error in getDashboardStats:', error);

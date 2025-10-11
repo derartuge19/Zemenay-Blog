@@ -29,10 +29,12 @@ export class TagsService {
   }
 
   async findAll(): Promise<Tag[]> {
-    const { data, error } = await this.databaseService.getClient()
+    const result = await this.databaseService.getClient()
       .from('tags')
       .select('*')
-      .order('name');
+      .order('name')
+      .execute();
+    const { data, error } = result;
     
     if (error) {
       throw new Error(`Failed to fetch tags: ${error.message}`);
@@ -42,11 +44,13 @@ export class TagsService {
   }
 
   async findOne(id: string): Promise<Tag> {
-    const { data, error } = await this.databaseService.getClient()
+    const result = await this.databaseService.getClient()
       .from('tags')
       .select('*')
       .eq('id', id)
-      .single();
+      .single()
+      .execute();
+    const { data, error } = result;
     
     if (error) {
       throw new Error(`Failed to fetch tag: ${error.message}`);

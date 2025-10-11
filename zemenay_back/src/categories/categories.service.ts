@@ -30,11 +30,13 @@ export class CategoriesService {
         updated_at: now,
       };
 
-      const { data: category, error } = await this.getClient()
-        .from(this.table)
-        .insert(categoryData)
-        .select()
-        .single();
+      const result = await this.getClient()
+  .from(this.table)
+  .insert(categoryData)
+  .select()
+  .single()
+  .execute();
+const { data: category, error } = result;
 
       if (error) {
         this.logger.error('Error creating category:', error);
@@ -50,11 +52,12 @@ export class CategoriesService {
 
   async findAll(): Promise<Category[]> {
     try {
-      const { data: categories, error } = await this.getClient()
-        .from(this.table)
-        .select('*')
-        .order('name', { ascending: true });
-
+      const result = await this.getClient()
+      .from(this.table)
+      .select('*')
+      .order('name', { ascending: true })
+      .execute();
+    const { data: categories, error } = result;
       if (error) {
         throw new Error(`Failed to fetch categories: ${error.message}`);
       }
@@ -68,11 +71,13 @@ export class CategoriesService {
 
   async findOne(id: string): Promise<Category> {
     try {
-      const { data: category, error } = await this.getClient()
-        .from(this.table)
-        .select('*')
-        .eq('id', id)
-        .single();
+      const result = await this.getClient()
+      .from(this.table)
+      .select('*')
+      .eq('id', id)
+      .single()
+      .execute();
+    const { data: category, error } = result;
 
       if (error || !category) {
         throw new NotFoundException(`Category with ID ${id} not found`);
@@ -97,12 +102,14 @@ export class CategoriesService {
         updateData.slug = updateCategoryDto.name.toLowerCase().replace(/\s+/g, '-');
       }
 
-      const { data: updatedCategory, error } = await this.getClient()
-        .from(this.table)
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
+      const result = await this.getClient()
+      .from(this.table)
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single()
+      .execute();
+    const { data: updatedCategory, error } = result;
 
       if (error) {
         throw new Error(`Failed to update category: ${error.message}`);
@@ -120,10 +127,12 @@ export class CategoriesService {
       // Check if category exists
       await this.findOne(id);
 
-      const { error } = await this.getClient()
-        .from(this.table)
-        .delete()
-        .eq('id', id);
+      const result = await this.getClient()
+      .from(this.table)
+      .delete()
+      .eq('id', id)
+      .execute();
+    const { error } = result;
 
       if (error) {
         throw new Error(`Failed to delete category: ${error.message}`);

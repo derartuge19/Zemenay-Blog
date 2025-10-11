@@ -1,144 +1,89 @@
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
-export const dynamic = 'force-dynamic';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
-const createServerClient = () => {
-  const cookieStore = cookies();
-  return createServerComponentClient({ 
-    cookies: () => cookieStore 
-  });
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-export async function POST(request: Request) {
-  const supabase = createServerClient();
-  
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: corsHeaders,
+  });
+}
+
+export async function GET(request: NextRequest) {
   try {
-    // Get the current user session
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    const { searchParams } = new URL(request.url);
+    const queryString = searchParams.toString();
+    const backendUrl = `${BACKEND_URL}/comments${queryString ? `?${queryString}` : ''}`;
     
-    if (sessionError || !session) {
-      console.error('No active session found:', sessionError);
+    const authHeader = request.headers.get('authorization');
+
+    const response = await fetch(backendUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authHeader ? { 'Authorization': authHeader } : {}),
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
       return NextResponse.json(
-        { error: 'Authentication required. Please sign in to comment.' },
-        { status: 401 }
+        { error: data.message || 'Failed to fetch comments' },
+        { status: response.status, headers: corsHeaders }
       );
     }
 
-    // Get request body
-    const { content, post_id } = await request.json();
-    
-    // Validate input
-    if (!content?.trim() || !post_id) {
-      return NextResponse.json(
-        { error: 'Content and post_id are required' },
-        { status: 400 }
-      );
-    }
-
-    // Get user details
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      console.error('No user found in session');
-      return NextResponse.json(
-        { error: 'User not found. Please sign in again.' },
-        { status: 401 }
-      );
-    }
-
-    // Create the comment
-    const { data: comment, error: insertError } = await supabase
-      .from('comments')
-      .insert([
-        {
-          content: content.trim(),
-          post_id: post_id,
-          author_id: user.id,  
-          author_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Anonymous',
-          author_avatar: user.user_metadata?.avatar_url,
-          author_email: user.email,
-          status: 'approved',
-          created_at: new Date().toISOString()
-        },
-      ])
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error('Error creating comment:', insertError);
-      return NextResponse.json(
-        { error: insertError.message || 'Failed to create comment' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(comment);
-  } catch (error) {
-    console.error('Error in comments API route:', error);
+    return NextResponse.json(data, { headers: corsHeaders });
+  } catch (error: any) {
+    console.error('Error in GET /api/comments:', error);
     return NextResponse.json(
-      { error: 'An unexpected error occurred. Please try again.' },
-      { status: 500 }
+      { error: 'Internal server error', details: error.message },
+      { status: 500, headers: corsHeaders }
     );
   }
 }
 
-export async function GET(request: Request) {
-  const supabase = createServerClient();
-  
+export async function POST(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const postId = searchParams.get('post_id');
-    
-    if (!postId) {
+    const commentData = await request.json();
+    const authHeader = request.headers.get('authorization');
+
+    console.log('📝 POST /api/comments - Comment data:', commentData);
+    console.log('📝 POST /api/comments - Backend URL:', `${BACKEND_URL}/comments`);
+
+    const response = await fetch(`${BACKEND_URL}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authHeader ? { 'Authorization': authHeader } : {}),
+      },
+      body: JSON.stringify(commentData),
+    });
+
+    const data = await response.json();
+    console.log('📝 POST /api/comments - Backend response:', { status: response.status, data });
+
+    if (!response.ok) {
+      console.error('❌ POST /api/comments - Backend error:', data);
       return NextResponse.json(
-        { error: 'post_id query parameter is required' },
-        { status: 400 }
+        { message: data.message || 'Failed to create comment', error: data.error, details: data },
+        { status: response.status, headers: corsHeaders }
       );
     }
 
-    // Get approved comments for this post
-    const { data: comments, error } = await supabase
-      .from('comments')
-      .select('*')
-      .eq('post_id', postId)
-      .eq('status', 'approved')
-      .is('parent_id', null) // Only top-level comments
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching comments:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch comments' },
-        { status: 500 }
-      );
-    }
-
-    // Get all replies for these comments if there are any
-    if (comments && comments.length > 0) {
-      const commentIds = comments.map(comment => comment.id);
-      const { data: replies } = await supabase
-        .from('comments')
-        .select('*')
-        .in('parent_id', commentIds)
-        .eq('status', 'approved')
-        .order('created_at', { ascending: true });
-
-      // Attach replies to their parent comments
-      if (replies) {
-        comments.forEach(comment => {
-          comment.replies = replies.filter(reply => reply.parent_id === comment.id);
-        });
-      }
-    }
-
-    return NextResponse.json(comments || []);
-  } catch (error) {
-    console.error('Error in comments API route:', error);
+    return NextResponse.json(data, { status: 201, headers: corsHeaders });
+  } catch (error: any) {
+    console.error('❌ POST /api/comments - Server error:', error);
     return NextResponse.json(
-      { error: 'An error occurred while fetching comments' },
-      { status: 500 }
+      { message: 'Internal server error', error: error.message },
+      { status: 500, headers: corsHeaders }
     );
   }
 }

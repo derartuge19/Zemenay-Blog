@@ -45,43 +45,54 @@ export class AnalyticsService {
   async getDashboardStats(): Promise<DashboardStats> {
     try {
       // Get total posts count
-      const { count: totalPosts } = await this.db.getClient()
-        .from('posts')
-        .select('*', { count: 'exact', head: true });
+      const postsResult = await this.db.getClient()
+  .from('posts')
+  .select('*')
+  .execute();
+const { count: totalPosts } = postsResult;
 
       // Get total users count
-      const { count: totalUsers } = await this.db.getClient()
-        .from('users')
-        .select('*', { count: 'exact', head: true });
+      const usersResult = await this.db.getClient()
+      .from('users')
+      .select('*')
+      .execute();
+    const { count: totalUsers } = usersResult;
 
       // Get most viewed posts
-      const { data: popularPosts } = await this.db.getClient()
-        .from('posts')
-        .select('id, title, slug, view_count')
-        .order('view_count', { ascending: false })
-        .limit(5);
+      const popularResult = await this.db.getClient()
+      .from('posts')
+      .select('id, title, slug, view_count')
+      .order('view_count', { ascending: false })
+      .limit(5)
+      .execute();
+    const { data: popularPosts } = popularResult;
 
       // Get recent posts
-      const { data: recentPosts } = await this.db.getClient()
-        .from('posts')
-        .select('id, title, slug, created_at, view_count')
-        .order('created_at', { ascending: false })
-        .limit(5);
+      const recentResult = await this.db.getClient()
+      .from('posts')
+      .select('id, title, slug, created_at, view_count')
+      .order('created_at', { ascending: false })
+      .limit(5)
+      .execute();
+    const { data: recentPosts } = recentResult;
 
       // Get total views across all posts
-      const { data: posts } = await this.db.getClient()
-        .from('posts')
-        .select('view_count');
+      const postsViewResult = await this.db.getClient()
+      .from('posts')
+      .select('view_count')
+      .execute();
+    const { data: posts } = postsViewResult;
       
       const totalViews = posts?.reduce((sum: number, post: PostWithViewCount) => 
         sum + (post.view_count || 0), 0) || 0;
       const averageViews = totalPosts ? Math.round((totalViews / totalPosts) * 10) / 10 : 0;
 
       // Get posts by status with view counts
-      const { data: allPosts } = await this.db.getClient()
-        .from('posts')
-        .select('status, view_count');
-      
+      const allPostsResult = await this.db.getClient()
+  .from('posts')
+  .select('status, view_count')
+  .execute();
+const { data: allPosts } = allPostsResult;
       // Initialize status counts
       const statusCounts: Record<string, { count: number; views: number }> = {};
       
@@ -108,10 +119,12 @@ export class AnalyticsService {
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-      const { data: postsByMonth } = await this.db.getClient()
-        .from('posts')
-        .select('created_at, view_count')
-        .gte('created_at', sixMonthsAgo.toISOString());
+      const monthlyResult = await this.db.getClient()
+      .from('posts')
+      .select('created_at, view_count')
+      .gte('created_at', sixMonthsAgo.toISOString())
+      .execute();
+    const { data: postsByMonth } = monthlyResult;
 
       // Process monthly stats with view counts
       const monthlyStats = this.processMonthlyStats(postsByMonth || []);

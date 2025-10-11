@@ -5,23 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { FeaturedImage } from './blog/FeaturedImage';
 import { formatDate } from '@/lib/utils';
-
-interface BlogPost {
-  id: string;
-  title: string;
-  slug: string;
-  excerpt?: string;
-  featured_image?: string;
-  published_at?: string;
-  created_at: string;
-  author_name?: string;
-  author?: {
-    name?: string;
-    avatar_url?: string;
-  };
-  categories?: Array<{ name: string }>;
-  [key: string]: any; // Allow additional properties
-}
+import { BlogPost } from '@/lib/api-client';
 
 interface BlogPostsProps {
   posts: BlogPost[];
@@ -65,7 +49,7 @@ export function BlogPosts({ posts }: BlogPostsProps) {
         const { id, title, slug, excerpt, featured_image, published_at, created_at, author, categories } = post;
         const authorName = author?.name || post.author_name || 'Admin';
         const authorAvatar = author?.avatar_url || '/images/avatar-placeholder.png';
-        const postDate = published_at || created_at;
+        const postDate = published_at || created_at || new Date().toISOString();
         
         return (
           <Link key={id} href={`/blog/${slug}`} className="group block h-full">

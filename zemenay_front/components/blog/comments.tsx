@@ -54,17 +54,17 @@ export function Comments({ postId, isAdmin = false }: CommentsProps) {
   const fetchComments = async () => {
     try {
       setIsLoading(true);
-      const url = new URL(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/comments`);
+      const url = new URL('/api/comments', window.location.origin);
       url.searchParams.append('postId', postId);
       if (isAdmin) {
         url.searchParams.append('admin', 'true');
       }
-
+  
       const response = await fetch(url.toString(), {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
+          ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}),
         },
       });
       
@@ -101,10 +101,9 @@ export function Comments({ postId, isAdmin = false }: CommentsProps) {
     setError('');
     
     try {
-      const url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/comments`;
-      const method = editingComment ? 'PUT' : 'POST';
-      const endpoint = editingComment ? `${url}/${editingComment.id}` : url;
-
+      const url = '/api/comments';
+const method = editingComment ? 'PATCH' : 'POST';
+const endpoint = editingComment ? `/api/comments/${editingComment.id}` : url;
       const response = await fetch(endpoint, {
         method,
         headers: {
@@ -116,17 +115,17 @@ export function Comments({ postId, isAdmin = false }: CommentsProps) {
           content: newComment,
           post_id: postId,
           author_id: user?.id,
-          author_name: user?.name || user?.username || 'Anonymous',
+          author_name: user?.name || user?.email?.split('@')[0] || 'Anonymous',
           author_email: user?.email,
-          author_avatar: user?.avatar_url,
+          author_avatar: undefined, // or remove this line if not needed
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to post comment');
+        console.error('❌ Error response from API:', errorData);
+        throw new Error(errorData.message || errorData.error || 'Failed to post comment');
       }
-
       toast({
         title: 'Success',
         description: editingComment ? 'Comment updated successfully' : 'Comment posted successfully',
@@ -152,9 +151,9 @@ export function Comments({ postId, isAdmin = false }: CommentsProps) {
   const handleDelete = async (commentId: string) => {
     try {
       setIsSubmitting(true);
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/comments/${commentId}`,
-        {
+      
+        const response = await fetch(`/api/comments/${commentId}`, {
+        
           method: 'DELETE',
           headers: {
             'Content-Type': 'application/json',
@@ -192,8 +191,7 @@ export function Comments({ postId, isAdmin = false }: CommentsProps) {
     if (!isAdmin) return;
     
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/comments/${comment.id}/approve`,
+      const response = await fetch(`/api/comments/${comment.id}/approve`, 
         {
           method: 'PATCH',
           headers: {

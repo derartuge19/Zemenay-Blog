@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getAllBlogPosts, getCategories } from '@/lib/blog-api';
+import { getPosts, getCategories } from '@/lib/blog-api';
 import { BlogPosts } from '@/components/blog-posts';
 import { BlogCategoryFilter } from '@/components/blog-category-filter';
 import { Button } from '@/components/ui/button';
@@ -29,12 +29,12 @@ export default function BlogPage() {
       try {
         setIsLoading(true);
         const [postsData, categoriesData] = await Promise.all([
-          getAllBlogPosts(appliedCategoryId || undefined),
+          getPosts(appliedCategoryId ? { categoryId: appliedCategoryId } : {}),
           getCategories(),
         ]);
         
         setCategories(categoriesData);
-        setPosts(postsData);
+        setPosts(postsData.data);
         setError(null);
       } catch (err) {
         console.error('Error fetching blog data:', err);
