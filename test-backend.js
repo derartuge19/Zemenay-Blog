@@ -1,5 +1,5 @@
 // Test Backend Connection and Create Test User
-const API_URL = 'http://localhost:3001';
+const  API_URL = 'http://localhost:3001';
 
 async function testBackend() {
   console.log('🧪 Testing Backend Connection...\n');
@@ -22,7 +22,7 @@ async function testBackend() {
   
   // Test 2: Try to register a test user
   console.log('\n2️⃣ Creating test user...');
-  try {
+  try  {
     const userData = {
       email: 'admin@example.com',
       password: 'password123',
